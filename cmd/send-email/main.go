@@ -16,6 +16,7 @@
 //	                        cored 进程内自动投递 exec 出站桥的跨进程协议面），subject/body
 //	                        取自信封渲染字段；--subject/--body-file 在此模式下忽略
 //	--probe                 只做通道可达性探测（不发送）
+//	--plain                 明文模式（不套 TLS）：本地 SMTP sink 桩会话（探针零外发 KI-001）
 //
 // 输出：成功=SendResult JSON（含 messageId/to）；失败=错误文本 + exit 1。
 package main
@@ -43,10 +44,11 @@ func main() {
 	bodyFile := flag.String("body-file", "", "正文文件（'-'=stdin）")
 	envelope := flag.Bool("envelope", false, "信封模式：stdin 读出站信封 JSON（cored exec 出站桥协议面），subject/body 取自信封")
 	probe := flag.Bool("probe", false, "只探测通道可达性（不发送）")
+	plain := flag.Bool("plain", false, "明文模式（不套 TLS）：本地 SMTP sink 桩会话用（探针零外发 KI-001——默认运行外发=0；生产部署恒 TLS 勿用）")
 	timeout := flag.Duration("timeout", 30*time.Second, "超时")
 	flag.Parse()
 
-	cfg := notify.Config{Host: *host, Port: *port, From: *from,
+	cfg := notify.Config{Host: *host, Port: *port, From: *from, Plain: *plain,
 		SecretSource: "env:QQ_SMTP_AUTH_CODE",
 		To:           splitList(*to)}
 	c := notify.New(cfg)

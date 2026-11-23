@@ -10,6 +10,7 @@ import (
 	"io"
 	"mime"
 	"net"
+	"strconv"
 
 	"strings"
 	"testing"
@@ -260,6 +261,29 @@ func TestProbeReachability(t *testing.T) {
 	bad := New(Config{Host: "127.0.0.1", Port: 1, From: "f", Secret: "s"})
 	if err := bad.Probe(context.Background()); err == nil {
 		t.Fatalf("不可达端口 Probe 应报错")
+	}
+}
+
+// TestPlainModeLocalSink 明文模式（Config.Plain，KI-001 探针零外发）：不套 TLS 直打本地
+// 桩——发送/探测全链路走同一会话语义（EXIT 0 + Message-ID + 桩收到报文），与 dialTLS
+// 注入路径（既有测试）零交叉=配置面自身生效的机械判别。
+func TestPlainModeLocalSink(t *testing.T) {
+	f := newFakeSMTP(t, false)
+	_, pn, _ := net.SplitHostPort(f.addr())
+	port, _ := strconv.Atoi(pn)
+	c := New(Config{Host: "127.0.0.1", Port: port, From: "sender@deploy.local",
+		To: []string{"sink@local"}, Secret: "s", Plain: true})
+	out, err := c.Invoke(context.Background(), OpSendEmail,
+		[]byte(`{"subject":"sink 断言","body":"zero-egress"}`))
+	if err != nil {
+		t.Fatalf("明文模式 Invoke 应成功（本地桩）: %v", err)
+	}
+	var res SendResult
+	if err := json.Unmarshal(out, &res); err != nil || res.MessageID == "" {
+		t.Fatalf("回执形态错误: %s %v", out, err)
+	}
+	if err := c.Probe(context.Background()); err != nil {
+		t.Fatalf("明文模式 Probe 应可达: %v", err)
 	}
 }
 

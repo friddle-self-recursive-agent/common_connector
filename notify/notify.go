@@ -49,6 +49,10 @@ type Config struct {
 	Secret       string
 	// SubjectPrefix 可选主题前缀（如渠道标记）。
 	SubjectPrefix string
+	// Plain 明文模式（不套 TLS）：本地 SMTP sink 联调用（验收探针零外发硬性要求——
+	// KI-001：默认运行外发连接数=0，真实外发仅 CORE_MAIL_E2E=1 显式开关；协议面/
+	// 出站状态机断言走本机桩进程）。仅限回环桩会话，生产部署恒 TLS（声明面不变）。
+	Plain bool
 }
 
 // NotifyParams Invoke 入参（JSON；op=notify 与 op=send-email 同构，notify 是别名入口）。
@@ -217,6 +221,21 @@ func (c *EmailConnector) dialClient(ctx context.Context, secret string) (*smtp.C
 		return nil, errors.New("notify: 配置缺 host/from（Provider/WorkService 配置面注入）")
 	}
 	addr := net.JoinHostPort(c.cfg.Host, fmt.Sprint(c.cfg.Port))
+	if c.cfg.Plain { // 明文模式：本地 sink 桩会话（探针零外发 KI-001；生产部署恒 TLS）
+		conn, err := net.Dial("tcp", addr)
+		if err != nil {
+			return nil, fmt.Errorf("notify: 建连 %s: %w", addr, err)
+		}
+		if deadline, ok := ctx.Deadline(); ok {
+			_ = conn.SetDeadline(deadline)
+		}
+		cl, err := smtp.NewClient(conn, c.cfg.Host)
+		if err != nil {
+			conn.Close()
+			return nil, fmt.Errorf("notify: SMTP 握手: %w", err)
+		}
+		return cl, nil
+	}
 	tlsCfg := &tls.Config{ServerName: c.cfg.Host}
 	conn, err := c.dialTLS("tcp", addr, tlsCfg)
 	if err != nil {
