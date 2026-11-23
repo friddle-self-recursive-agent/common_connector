@@ -12,6 +12,9 @@
 //	--from                  发件账号
 //	--to                    收件人清单（逗号分隔；收件人可配置，缺省亦可由配置面注入）
 //	--subject / --body-file 正文与主题（body-file='-' 读 stdin）
+//	--envelope              信封模式：stdin 读出站信封 JSON（connectors.OutboundEnvelope——
+//	                        cored 进程内自动投递 exec 出站桥的跨进程协议面），subject/body
+//	                        取自信封渲染字段；--subject/--body-file 在此模式下忽略
 //	--probe                 只做通道可达性探测（不发送）
 //
 // 输出：成功=SendResult JSON（含 messageId/to）；失败=错误文本 + exit 1。
@@ -28,6 +31,7 @@ import (
 	"time"
 
 	"github.com/friddle-self-recursive-agent/common_connector/notify"
+	"github.com/friddle-self-recursive-agent/core_system_workservice/connectors"
 )
 
 func main() {
@@ -37,6 +41,7 @@ func main() {
 	to := flag.String("to", envOr("NOTIFY_EMAIL_TO", ""), "收件人清单（逗号分隔）")
 	subject := flag.String("subject", "", "主题")
 	bodyFile := flag.String("body-file", "", "正文文件（'-'=stdin）")
+	envelope := flag.Bool("envelope", false, "信封模式：stdin 读出站信封 JSON（cored exec 出站桥协议面），subject/body 取自信封")
 	probe := flag.Bool("probe", false, "只探测通道可达性（不发送）")
 	timeout := flag.Duration("timeout", 30*time.Second, "超时")
 	flag.Parse()
@@ -57,14 +62,34 @@ func main() {
 		return
 	}
 
-	body, err := readBody(*bodyFile)
-	if err != nil {
-		fail(err)
+	var params []byte
+	if *envelope {
+		// 信封模式：stdin 全量 JSON=connectors.OutboundEnvelope（subject/body 桥内建渲染）。
+		raw, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			fail(fmt.Errorf("读信封: %w", err))
+		}
+		var env connectors.OutboundEnvelope
+		if err := json.Unmarshal(raw, &env); err != nil {
+			fail(fmt.Errorf("信封解析失败（stdin 须为出站信封 JSON）: %w", err))
+		}
+		params, err = json.Marshal(notify.FromEnvelope(env))
+		if err != nil {
+			fail(err)
+		}
+	} else {
+		body, err := readBody(*bodyFile)
+		if err != nil {
+			fail(err)
+		}
+		if *subject == "" {
+			fail(fmt.Errorf("--subject 必填"))
+		}
+		params, err = json.Marshal(notify.NotifyParams{Subject: *subject, Body: body})
+		if err != nil {
+			fail(err)
+		}
 	}
-	if *subject == "" {
-		fail(fmt.Errorf("--subject 必填"))
-	}
-	params, _ := json.Marshal(notify.NotifyParams{Subject: *subject, Body: body})
 	out, err := c.Invoke(ctx, notify.OpSendEmail, params)
 	if err != nil {
 		fail(err)

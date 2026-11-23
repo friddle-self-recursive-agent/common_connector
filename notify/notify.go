@@ -70,6 +70,13 @@ type SendResult struct {
 // ErrUnknownOp op 未在该连接器 Ops() 声明内。
 var ErrUnknownOp = errors.New("notify: op 未声明")
 
+// FromEnvelope 出站信封 → 调用参数（cored 进程内自动投递的信封协议消费面：
+// connectors.OutboundEnvelope——cored exec 出站桥经 stdin 投递的信封，subject/body
+// 由桥内建渲染；本实现只消费这两个渲染字段，投递溯源字段留审计可回指查询面）。
+func FromEnvelope(env connectors.OutboundEnvelope) NotifyParams {
+	return NotifyParams{Subject: env.Subject, Body: env.Body}
+}
+
 // EmailConnector 通知邮件 OpsConnector（connectors.OpsConnector 实现）。
 // 一次 Invoke 一次 SMTP 会话（无长连资源）；并发安全（无共享可变状态）。
 type EmailConnector struct {

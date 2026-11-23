@@ -277,3 +277,19 @@ func TestEncodingHelpers(t *testing.T) {
 		t.Fatalf("base64 折行不可还原: %q %v", wrapped, err)
 	}
 }
+
+// TestFromEnvelope 出站信封消费面：cored exec 出站桥信封（connectors.OutboundEnvelope）
+// → 调用参数——subject/body 取信封渲染字段，溯源字段不进参数面（留审计）。
+func TestFromEnvelope(t *testing.T) {
+	env := connectors.OutboundEnvelope{
+		Delivery: 3, Channel: "mail-chan", Origin: "route", TriggerSeq: 2,
+		EventID: "ev-9", Type: "Escalate", DedupKey: "esc:wf:denied", Level: "error",
+		Route: "root-agent", Owner: "global", At: "2026-11-24T00:00:00Z",
+		Subject: "[cored] Escalate error mail-chan",
+		Body:    "cored 进程内自动投递（受理后异步出站）\n事件类型: Escalate\n",
+	}
+	p := FromEnvelope(env)
+	if p.Subject != env.Subject || p.Body != env.Body || p.To != nil || p.Cc != nil {
+		t.Fatalf("信封映射不符: %+v", p)
+	}
+}
